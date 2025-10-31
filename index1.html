@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Giám Sát 3 Pha (ESP32 + ERA)</title>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- JustGage + Raphael -->
+<script src="https://cdn.jsdelivr.net/npm/raphael"></script>
+<script src="https://cdn.jsdelivr.net/npm/justgage"></script>
+
+<style>
+:root {
+  --status-ok: #00cc66;
+  --status-off: #777;
+}
+body {
+  font-family: Arial, sans-serif;
+  background: #f5f7fa;
+  margin: 0;
+  padding: 0;
+}
+.container {
+  max-width: 900px;
+  margin: 30px auto;
+  background: #fff;
+  padding: 25px;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  text-align: center;
+}
+h2 {
+  color: #222;
+  margin-bottom: 10px;
+}
+#ledDot {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  margin: 10px auto;
+  background-color: var(--status-off);
+  box-shadow: 0 0 6px rgba(0,0,0,0.2);
+}
+#ledText {
+  margin: 8px 0 15px;
+  font-size: 16px;
+  font-weight: bold;
+}
+button {
+  margin: 6px;
+  padding: 10px 25px;
+  font-size: 15px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #fff;
+  background-color: #007bff;
+  transition: 0.2s;
+}
+button:hover { background-color: #0056b3; }
+canvas {
+  margin-top: 20px;
+}
+.log {
+  text-align: left;
+  max-height: 160px;
+  overflow-y: auto;
+  background: #efefef;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  margin-top: 15px;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+  <h2>Giám Sát & Điều Khiển LED (ERA + ESP32)</h2>
+  
+  <div id="ledDot"></div>
+  <p id="ledText">LED đang tắt</p>
+  <button onclick="setLED(1)">Bật LED</button>
+  <button onclick="setLED(0)">Tắt LED</button>
+
+  <canvas id="chartVoltage" width="400" height="200"></canvas>
+
+  <div class="log" id="logBox"></div>
+</div>
+
+<!-- ============ ERA Widget ============ -->
+<script src="https://cdn.jsdelivr.net/npm/era-widget@latest/dist/era-widget.min.js"></script>
+<script>
+const eraWidget = new EraWidget();
+let onLight = null;
+let offLight = null;
+
+// Hàm ghi log ra màn hình
+function log(msg) {
+  const box = document.getElementById("logBox");
+  const line = document.createElement("div");
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  box.prepend(line);
+}
+
+// Khởi tạo kết nối ERA
+eraWidget.init({
+  onConfiguration: (configuration) => {
+    onLight = configuration.actions[0];
+    offLight = configuration.actions[1];
+    log("ERA cấu hình sẵn sàng");
+  },
+  onValues: (values) => {
+    if (values.length > 0) {
+      const ledState = values[0];
+      ledDot.style.backgroundColor = ledState == 1 ? 'var(--status-ok)' : 'var(--status-off)';
+      ledText.innerText = ledState == 1 ? 'LED đang bật (từ ERA)' : 'LED đang tắt (từ ERA)';
+      log(`Nhận tín hiệu LED từ ERA: ${ledState}`);
+    }
+  }
+});
+
+// Gửi hành động lên ERA
+async function sendEraAction(action, value=null) {
+  if (!action) return;
+  try {
+    await eraWidget.triggerAction(action, value);
+    log(`Gửi hành động ERA: ${action.name || 'unknown'} (${JSON.stringify(value)})`);
+  } catch (e) {
+    log("Lỗi gửi ERA: " + e.message);
+  }
+}
+
+// Hàm điều khiển LED
+async function setLED(state) {
+  if (state == 1 && onLight) await sendEraAction(onLight);
+  if (state == 0 && offLight) await sendEraAction(offLight);
+
+  ledDot.style.backgroundColor = state==1 ? 'var(--status-ok)' : 'var(--status-off)';
+  ledText.innerText = state==1 ? 'LED đang bật (local)' : 'LED đang tắt (local)';
+}
+</script>
+<!-- =================================== -->
+
+<!-- ============ Biểu đồ điện áp ============ -->
+<script>
+const ctx = document.getElementById('chartVoltage').getContext('2d');
+const voltageData = {
+  labels: [],
+  datasets: [{
+    label: 'Điện áp pha A (V)',
+    data: [],
+    borderWidth: 2,
+    borderColor: '#007bff',
+    tension: 0.25
+  }]
+};
+
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: voltageData,
+  options: {
+    responsive: true,
+    animation: false,
+    scales: {
+      y: { beginAtZero: false, min: 200, max: 240 }
+    }
+  }
+});
+
+// Giả lập dữ liệu điện áp (thay vì đọc từ ESP)
+setInterval(() => {
+  const time = new Date().toLocaleTimeString();
+  const value = 220 + Math.random() * 8 - 4; // dao động quanh 220V
+  voltageData.labels.push(time);
+  voltageData.datasets[0].data.push(value);
+  if (voltageData.labels.length > 20) {
+    voltageData.labels.shift();
+    voltageData.datasets[0].data.shift();
+  }
+  chart.update();
+}, 1000);
+</script>
+</body>
+</html>
